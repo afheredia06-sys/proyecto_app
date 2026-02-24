@@ -1,0 +1,429 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import '../models/agricultor_model.dart';
+
+class AgricultorService {
+  // Singleton - garantiza una sola instancia en toda la app
+  static final AgricultorService _instance = AgricultorService._internal();
+  factory AgricultorService() => _instance;
+  AgricultorService._internal();
+  
+  // Configuración de la API
+  static const String _baseUrl = 'https://tu-api.com/api'; // CAMBIAR por tu URL real
+  static const int _timeoutSeconds = 30;
+  
+  // Token de autenticación
+  String? _authToken;
+  
+  // Getter para verificar si el usuario está autenticado
+  bool get isAuthenticated => _authToken != null;
+  
+  // Método para actualizar el token (llamar después del login)
+  void setAuthToken(String? token) {
+    _authToken = token;
+  }
+  
+  // Headers para peticiones autenticadas
+  Map<String, String> _getHeaders() {
+    return {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      if (_authToken != null) 'Authorization': 'Bearer $_authToken',
+    };
+  }
+  
+  // Manejador de errores genérico
+  dynamic _handleResponse(http.Response response) {
+    switch (response.statusCode) {
+      case 200:
+      case 201:
+        return json.decode(response.body);
+      case 400:
+        throw Exception('Solicitud incorrecta: ${response.body}');
+      case 401:
+        throw Exception('No autorizado - Sesión expirada');
+      case 403:
+        throw Exception('Acceso prohibido');
+      case 404:
+        throw Exception('Recurso no encontrado');
+      case 500:
+        throw Exception('Error interno del servidor');
+      default:
+        throw Exception('Error ${response.statusCode}: ${response.reasonPhrase}');
+    }
+  }
+  
+  // ==================== MÉTODOS DE AUTENTICACIÓN ====================
+  
+  /// Iniciar sesión
+  Future<Map<String, dynamic>> login(String email, String password) async {
+    // MODO DESARROLLO - Datos simulados
+    if (kDebugMode) {
+      await Future.delayed(const Duration(seconds: 1)); // Simular latencia
+      
+      if (email == 'demo@agrilux.com' && password == '123456') {
+        _authToken = 'token_simulado_${DateTime.now().millisecondsSinceEpoch}';
+        return {
+          'success': true,
+          'token': _authToken,
+          'user': {
+            'id': '1',
+            'email': email,
+            'nombre': 'Juan Pérez',
+            'telefono': '555-1234',
+          }
+        };
+      } else {
+        throw Exception('Credenciales inválidas');
+      }
+    }
+    
+    // MODO PRODUCCIÓN - Llamada real a API
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/auth/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'email': email,
+          'password': password,
+        }),
+      ).timeout(
+        const Duration(seconds: _timeoutSeconds),
+        onTimeout: () => throw Exception('Tiempo de espera agotado'),
+      );
+      
+      final data = _handleResponse(response);
+      _authToken = data['token'];
+      return data;
+    } catch (e) {
+      debugPrint('Error en login: $e');
+      rethrow;
+    }
+  }
+  
+  /// Registrar nuevo usuario
+  Future<Map<String, dynamic>> register({
+    required String nombre,
+    required String email,
+    required String password,
+    String? telefono,
+  }) async {
+    // MODO DESARROLLO
+    if (kDebugMode) {
+      await Future.delayed(const Duration(seconds: 1));
+      
+      _authToken = 'token_simulado_${DateTime.now().millisecondsSinceEpoch}';
+      return {
+        'success': true,
+        'token': _authToken,
+        'user': {
+          'id': DateTime.now().millisecondsSinceEpoch.toString(),
+          'email': email,
+          'nombre': nombre,
+          'telefono': telefono,
+        }
+      };
+    }
+    
+    // MODO PRODUCCIÓN
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/auth/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'nombre': nombre,
+          'email': email,
+          'password': password,
+          'telefono': telefono,
+        }),
+      ).timeout(const Duration(seconds: _timeoutSeconds));
+      
+      final data = _handleResponse(response);
+      _authToken = data['token'];
+      return data;
+    } catch (e) {
+      debugPrint('Error en register: $e');
+      rethrow;
+    }
+  }
+  
+  /// Obtener usuario actual
+  Future<Map<String, dynamic>> getCurrentUser() async {
+    // MODO DESARROLLO
+    if (kDebugMode) {
+      return {
+        'id': '1',
+        'email': 'demo@agrilux.com',
+        'nombre': 'Juan Pérez',
+        'telefono': '555-1234',
+      };
+    }
+    
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/auth/me'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: _timeoutSeconds));
+      
+      return _handleResponse(response);
+    } catch (e) {
+      debugPrint('Error en getCurrentUser: $e');
+      rethrow;
+    }
+  }
+  
+  /// Cerrar sesión
+  void logout() {
+    _authToken = null;
+  }
+  
+  // ==================== MÉTODOS DE AGRICULTORES ====================
+  
+  /// Obtener agricultor por email
+  Future<Agricultor?> getAgricultorByEmail(String email) async {
+    // MODO DESARROLLO
+    if (kDebugMode) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      // Simular diferentes respuestas según el email
+      if (email == 'demo@agrilux.com') {
+        return Agricultor(
+          id: '1',
+          nombre: 'Juan Pérez',
+          email: email,
+          telefono: '555-1234',
+          foto: null,
+          fechaRegistro: DateTime.now().subtract(const Duration(days: 30)),
+          activo: true,
+        );
+      } else if (email == 'maria@agrilux.com') {
+        return Agricultor(
+          id: '2',
+          nombre: 'María García',
+          email: email,
+          telefono: '555-5678',
+          foto: null,
+          fechaRegistro: DateTime.now().subtract(const Duration(days: 15)),
+          activo: true,
+        );
+      }
+      return null; // Usuario no registrado
+    }
+    
+    // MODO PRODUCCIÓN
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/agricultores?email=$email'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: _timeoutSeconds));
+      
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        if (data.isNotEmpty) {
+          return Agricultor.fromJson(data.first);
+        }
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error en getAgricultorByEmail: $e');
+      return null; // No lanzamos excepción, solo retornamos null
+    }
+  }
+  
+  /// Obtener todos los agricultores (con paginación)
+  Future<List<Agricultor>> getAllAgricultores({
+    int page = 1,
+    int limit = 20,
+  }) async {
+    // MODO DESARROLLO
+    if (kDebugMode) {
+      await Future.delayed(const Duration(seconds: 1));
+      
+      return [
+        Agricultor(
+          id: '1',
+          nombre: 'Juan Pérez',
+          email: 'juan@email.com',
+          telefono: '555-1234',
+          activo: true,
+        ),
+        Agricultor(
+          id: '2',
+          nombre: 'María García',
+          email: 'maria@email.com',
+          telefono: '555-5678',
+          activo: true,
+        ),
+        Agricultor(
+          id: '3',
+          nombre: 'Carlos López',
+          email: 'carlos@email.com',
+          telefono: '555-9012',
+          activo: false,
+        ),
+      ];
+    }
+    
+    // MODO PRODUCCIÓN
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/agricultores?page=$page&limit=$limit'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: _timeoutSeconds));
+      
+      final data = _handleResponse(response);
+      return (data as List).map((json) => Agricultor.fromJson(json)).toList();
+    } catch (e) {
+      debugPrint('Error en getAllAgricultores: $e');
+      rethrow;
+    }
+  }
+  
+  /// Crear nuevo agricultor
+  Future<Agricultor> createAgricultor(Map<String, dynamic> data) async {
+    // MODO DESARROLLO
+    if (kDebugMode) {
+      await Future.delayed(const Duration(seconds: 1));
+      
+      return Agricultor(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        nombre: data['nombre'] ?? '',
+        email: data['email'] ?? '',
+        telefono: data['telefono'],
+        foto: data['foto'],
+        fechaRegistro: DateTime.now(),
+        activo: true,
+      );
+    }
+    
+    // MODO PRODUCCIÓN
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/agricultores'),
+        headers: _getHeaders(),
+        body: json.encode(data),
+      ).timeout(const Duration(seconds: _timeoutSeconds));
+      
+      final responseData = _handleResponse(response);
+      return Agricultor.fromJson(responseData);
+    } catch (e) {
+      debugPrint('Error en createAgricultor: $e');
+      rethrow;
+    }
+  }
+  
+  /// Actualizar agricultor
+  Future<Agricultor> updateAgricultor(String id, Map<String, dynamic> data) async {
+    // MODO DESARROLLO
+    if (kDebugMode) {
+      await Future.delayed(const Duration(seconds: 1));
+      
+      return Agricultor(
+        id: id,
+        nombre: data['nombre'] ?? 'Actualizado',
+        email: data['email'] ?? 'actualizado@email.com',
+        telefono: data['telefono'],
+        foto: data['foto'],
+        activo: data['activo'] ?? true,
+      );
+    }
+    
+    // MODO PRODUCCIÓN
+    try {
+      final response = await http.put(
+        Uri.parse('$_baseUrl/agricultores/$id'),
+        headers: _getHeaders(),
+        body: json.encode(data),
+      ).timeout(const Duration(seconds: _timeoutSeconds));
+      
+      final responseData = _handleResponse(response);
+      return Agricultor.fromJson(responseData);
+    } catch (e) {
+      debugPrint('Error en updateAgricultor: $e');
+      rethrow;
+    }
+  }
+  
+  /// Eliminar agricultor
+  Future<bool> deleteAgricultor(String id) async {
+    // MODO DESARROLLO
+    if (kDebugMode) {
+      await Future.delayed(const Duration(seconds: 1));
+      return true; // Simular eliminación exitosa
+    }
+    
+    // MODO PRODUCCIÓN
+    try {
+      final response = await http.delete(
+        Uri.parse('$_baseUrl/agricultores/$id'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: _timeoutSeconds));
+      
+      return response.statusCode == 204; // 204 = No content (eliminado)
+    } catch (e) {
+      debugPrint('Error en deleteAgricultor: $e');
+      return false;
+    }
+  }
+  
+  /// Buscar agricultores por nombre
+  Future<List<Agricultor>> searchAgricultores(String query) async {
+    // MODO DESARROLLO
+    if (kDebugMode) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      final todos = await getAllAgricultores();
+      return todos.where((a) => 
+        a.nombre.toLowerCase().contains(query.toLowerCase())
+      ).toList();
+    }
+    
+    // MODO PRODUCCIÓN
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/agricultores/search?q=$query'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: _timeoutSeconds));
+      
+      final data = _handleResponse(response);
+      return (data as List).map((json) => Agricultor.fromJson(json)).toList();
+    } catch (e) {
+      debugPrint('Error en searchAgricultores: $e');
+      return [];
+    }
+  }
+  
+  // ==================== MÉTODOS DE UTILIDAD ====================
+  
+  /// Verificar si un email ya está registrado
+  Future<bool> isEmailRegistered(String email) async {
+    final agricultor = await getAgricultorByEmail(email);
+    return agricultor != null;
+  }
+  
+  /// Obtener estadísticas de agricultores
+  Future<Map<String, dynamic>> getEstadisticas() async {
+    // MODO DESARROLLO
+    if (kDebugMode) {
+      return {
+        'total': 150,
+        'activos': 120,
+        'nuevosEsteMes': 15,
+        'conCultivos': 85,
+      };
+    }
+    
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/agricultores/estadisticas'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: _timeoutSeconds));
+      
+      return _handleResponse(response);
+    } catch (e) {
+      debugPrint('Error en getEstadisticas: $e');
+      return {};
+    }
+  }
+}
